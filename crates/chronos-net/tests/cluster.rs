@@ -127,10 +127,12 @@ impl Cluster {
                 continue;
             }
             let mut c = Client::with_ids(vec![(n.id, n.client_addr)]);
-            // get() succeeds only on the leader.
-            if tokio::time::timeout(Duration::from_secs(3), c.get(b"__probe__".to_vec()))
-                .await
-                .is_ok()
+            // get() succeeds only on the leader. We must check the INNER
+            // result: timeout returns Ok(Err(_)) for followers (they respond
+            // with NotLeader, which the client turns into Unreachable after
+            // retries), and only Ok(Ok(_)) for the actual leader.
+            if let Ok(Ok(_)) =
+                tokio::time::timeout(Duration::from_secs(3), c.get(b"__probe__".to_vec())).await
             {
                 return n.id;
             }
@@ -195,6 +197,11 @@ async fn three_node_replication() {
     // Kill the leader: the data must survive on the remaining quorum.
     let leader = c.find_leader().await;
     c.kill(leader).await;
+    // Wait for the remaining nodes to elect a new leader. Without this, the
+    // test races the election: the client may exhaust its retries before a
+    // new leader exists, failing with "connection refused" (the old leader's
+    // port is closed and followers haven't yet elected a replacement).
+    c.wait_for_leader().await;
     let mut client2 = Client::with_ids(c.client_addrs());
     for i in 0..20u64 {
         let v = client2.get(format!("k{i}").into_bytes()).await.unwrap();
@@ -259,6 +266,8 @@ async fn leader_failover_preserves_committed_write() {
     client.put(b"dur".to_vec(), b"able".to_vec()).await.unwrap();
     let leader = c.find_leader().await;
     c.kill(leader).await;
+    // Wait for a new leader before writing; otherwise we race the election.
+    c.wait_for_leader().await;
     // Cluster continues with 2/3 nodes.
     let mut client2 = Client::with_ids(c.client_addrs());
     client2.put(b"after".to_vec(), b"failover".to_vec()).await.unwrap();
