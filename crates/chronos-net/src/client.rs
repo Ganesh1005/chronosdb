@@ -81,24 +81,50 @@ impl Client {
         }
         let mut last_err = ClientError::Unreachable;
         // Sweep the cluster; NotLeader hints jump straight to the leader.
+        // To avoid livelock on stale hints (e.g. followers hinting at a dead
+        // leader), we remove addresses that refuse connections and bound the
+        // number of hint-follows per sweep.
         for _ in 0..8 {
             let mut i = 0;
+            let mut hint_follows = 0;
+            const MAX_HINT_FOLLOWS: usize = 4;
             while i < addrs.len() {
                 let addr = addrs[i];
                 match self.call_once(addr, &req).await {
                     Ok(Response::Result { result, .. }) => return Ok(result),
                     Ok(Response::NotLeader { leader_hint, .. }) => {
                         if let Some(hint) = leader_hint.and_then(|id| self.addr_for(id)) {
+                            hint_follows += 1;
+                            if hint_follows > MAX_HINT_FOLLOWS {
+                                // Stop trusting hints; try remaining addrs.
+                                i += 1;
+                                continue;
+                            }
                             // Jump to the hinted leader.
                             addrs.retain(|a| *a != hint);
                             addrs.insert(0, hint);
                             i = 0;
                             continue;
                         }
+                        i += 1;
                     }
-                    Err(e) => last_err = e,
+                    Err(e) => {
+                        last_err = e;
+                        // Drop dead addresses so a stale hint can't livelock
+                        // us on a node that refuses connections.
+                        addrs.remove(i);
+                        // Do not increment i; the next address shifted into
+                        // this position.
+                        continue;
+                    }
                 }
-                i += 1;
+            }
+            // Restore the full address list for the next sweep (a node may
+            // have come back).
+            addrs = self.nodes.iter().map(|(_, a)| *a).collect();
+            if let Some(l) = self.leader {
+                addrs.retain(|a| *a != l);
+                addrs.insert(0, l);
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
