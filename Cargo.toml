@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/chronos-storage", "crates/chronos-mvcc", "crates/chronos-raft", "crates/chronos-net"]
+resolver = "2"
