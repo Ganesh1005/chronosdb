@@ -1,0 +1,21 @@
+[package]
+name = "chronos-net"
+version = "0.1.0"
+edition = "2021"
+description = "TCP client API, Raft-backed server, and CLI for ChronosDB"
+
+[[bin]]
+name = "chronos"
+path = "src/main.rs"
+
+[dependencies]
+chronos-storage = { path = "../chronos-storage" }
+chronos-mvcc = { path = "../chronos-mvcc" }
+chronos-raft = { path = "../chronos-raft" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
