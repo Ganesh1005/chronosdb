@@ -1,0 +1,13 @@
+[package]
+name = "chronos-storage"
+version = "0.1.0"
+edition = "2021"
+description = "Crash-safe append-only write-ahead log and atomic snapshots for ChronosDB"
+
+[dependencies]
+crc32c = "0.6"
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
