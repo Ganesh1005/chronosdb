@@ -1,0 +1,11 @@
+[package]
+name = "chronos-mvcc"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-version concurrency control with snapshot isolation for ChronosDB"
+
+[dependencies]
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1"
