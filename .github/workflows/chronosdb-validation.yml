@@ -1,0 +1,98 @@
+# ChronosDB independent CI validation.
+#
+# Baseline evaluation of the original submission. This workflow MUST NOT be
+# accompanied by source/test/Cargo changes: it measures the submission as-is.
+#
+# - cargo fmt and cargo clippy are advisory (continue-on-error): failures are
+#   reported but do not fail the workflow.
+# - cargo check, cargo build, and all cargo test invocations are blocking:
+#   any failure fails the workflow.
+# - Every command's full output is captured to validation-logs/ and uploaded
+#   as an artifact for independent inspection.
+
+name: chronosdb-validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/chronosdb-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust (with clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Record Rust version
+        run: |
+          mkdir -p validation-logs
+          (rustc --version; cargo --version) | tee validation-logs/rust-version.log
+
+      - name: cargo fmt --check (advisory)
+        id: fmt
+        continue-on-error: true
+        run: |
+          cargo fmt --all -- --check 2>&1 | tee validation-logs/fmt.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: cargo check (blocking)
+        run: |
+          cargo check --workspace --all-targets 2>&1 | tee validation-logs/check.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: cargo build --release (blocking)
+        run: |
+          cargo build --workspace --release 2>&1 | tee validation-logs/build-release.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: cargo test debug (blocking)
+        run: |
+          cargo test --workspace --all-targets -- --nocapture 2>&1 | tee validation-logs/test-debug.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: cargo test --release (blocking)
+        run: |
+          cargo test --workspace --release 2>&1 | tee validation-logs/test-release.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: cargo clippy (advisory)
+        id: clippy
+        continue-on-error: true
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee validation-logs/clippy.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Summarize advisory results
+        if: always()
+        run: |
+          {
+            echo "## Advisory check results (non-blocking)"
+            echo ""
+            echo "- cargo fmt: ${{ steps.fmt.outcome }}"
+            echo "- cargo clippy: ${{ steps.clippy.outcome }}"
+            echo ""
+            echo "See the uploaded validation-logs artifact for full output."
+          } | tee validation-logs/advisory-summary.md
+
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs
+          path: validation-logs/
+          retention-days: 30
